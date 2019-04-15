@@ -2,105 +2,61 @@ package com.trustkernel.uauth;
 
 import com.trustkernel.uauth.utils.EncryptUtils;
 import com.trustkernel.uauth.utils.JsonUtils;
+import lombok.Data;
 
-import java.nio.charset.Charset;
-import java.util.LinkedHashMap;
 
 /**
  * Created by watermelon on 2019/04/10
  */
-public class Issuer<T> extends Base<T> {
+public class Issuer{
 
-    /**
-     * 一般指代deviceId，也可以是用户业务需要签的数据
-     */
+    @Data
+    public static class DeviceCSR{
+        private String deviceId;
+        private String authPublicKey;
 
-    /**
-     * 签发的证书对象
-     */
-    private Certificate certificate;
 
-    public static class Certificate extends Model {
     }
 
-    @Override
-    public Issuer loadPrivateKey(String pri) {
-        return (Issuer) super.loadPrivateKey(pri);
-    }
+    @Data
+    public static class DeviceCert{
+        private String jsonValue;
+        private String signature;
 
-    @Override
-    public Issuer loadPublicKey(String pub) {
-        return (Issuer) super.loadPublicKey(pub);
-    }
-
-    /**
-     * 签名
-     *
-     * @return
-     */
-    @Override
-    public Certificate build() {
-        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
-        /**
-         * AuthKey
-         */
-        StringBuilder sb = new StringBuilder();
-        sb.append("-----BEGIN PUBLIC KEY-----\n");
-        sb.append(EncryptUtils.base64Encode(this.getPublicKey().getEncoded()));
-        sb.append("-----END PUBLIC KEY-----\n");
-        map.put("publicKey", sb.toString());
-        /**
-         * deviceId
-         */
-        String jsonValue = JsonUtils.toJson(this.getBusinessDescInfo(), this.getBusinessDescInfo().getClass());
-        map.put("data", jsonValue);
-        this.certificate = new Certificate();
-
-        this.certificate.setJsonValue(JsonUtils.toJson(map, map.getClass()));
-        byte[] bytes = this.certificate.getJsonValue().getBytes(Charset.forName("UTF-8"));
-        this.certificate.setSignature(EncryptUtils.base64Encode(EncryptUtils.sign(bytes, this.getPrivateKey())));
-        return this.certificate;
-    }
-
-    @Override
-    public boolean verify() {
-        /**
-         * 验证证书是否合法
-         */
-        if (this.certificate != null) {
-            return EncryptUtils.verify(this.getPublicKey(), this.certificate.getJsonValue(), this.certificate.getSignature());
-        } else {
-            /**
-             * 验证业务信息是否合法,传入的jsonValue字符串
-             */
-            return EncryptUtils.verify(this.getPublicKey(), this.getJsonValue(), this.getSignature()) && this.getValidator().verify();
+        public DeviceCert(String jsonValue, String signature) {
+            this.jsonValue = jsonValue;
+            this.signature = signature;
         }
-
     }
 
-    @Override
-    public Issuer registerValidator(Validator validator) {
-        return (Issuer) super.registerValidator(validator);
+    @Data
+    public static class RequestParams{
+        private String jsonValue;
+        private String signature;
     }
 
-    @Override
-    public Issuer loadJsonValue(String jsonValue) {
-        return (Issuer) super.loadJsonValue(jsonValue);
+    @Data
+    public static class Params{
+        private String deviceId;
+        private DeviceCert deviceCert;
     }
 
-    @Override
-    public Issuer loadSignature(String signature) {
-        return (Issuer) super.loadSignature(signature);
+    public static DeviceCert sign(String privateKey, DeviceCSR deviceCSR) {
+        String jsonValue= JsonUtils.toJson(deviceCSR,deviceCSR.getClass());
+        String signature= EncryptUtils.base64Encode(EncryptUtils.sign(jsonValue,privateKey));
+        return new DeviceCert(jsonValue,signature);
     }
 
-    public Issuer loadCertificate(Certificate certificate) {
-        this.certificate = certificate;
-        return this;
-    }
+    public static boolean verify(String publicKey, RequestParams requestParams) {
+        Params params = JsonUtils.fromJson(requestParams.getJsonValue(), Params.class);
+        DeviceCert deviceCert = params.getDeviceCert();
+        boolean f1 = EncryptUtils.verify(publicKey, deviceCert.getJsonValue(), deviceCert.getSignature());
 
-    public Issuer loadBusinessDescInfo(T t) {
-        this.setBusinessDescInfo(t);
-        return this;
+        DeviceCSR deviceCSR = JsonUtils.fromJson(deviceCert.getJsonValue(), DeviceCSR.class);
+        boolean f2 = EncryptUtils.verify(deviceCSR.getAuthPublicKey(), requestParams.getJsonValue(), requestParams.getSignature());
+
+        boolean f3 = deviceCSR.getDeviceId().equals(params.getDeviceId());
+        return f1 && f2 && f3;
     }
 
 }

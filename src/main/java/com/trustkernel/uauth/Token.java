@@ -2,6 +2,7 @@ package com.trustkernel.uauth;
 
 import com.trustkernel.uauth.utils.EncryptUtils;
 import com.trustkernel.uauth.utils.JsonUtils;
+import lombok.Data;
 
 import java.nio.charset.Charset;
 
@@ -10,112 +11,83 @@ import java.util.LinkedHashMap;
 /**
  * Created by watermelon on 2019/04/10
  */
-public class Token<U, S, K> extends Base<S> {
+public class Token {
 
-    private TokenModel tokenModel;
-
-    private Validator validator = () -> true;
-
-    /**
-     * 用户信息
-     */
-    private U userInfo;
-
-    /**
-     * 生物特征信息
-     */
-    private K biometricInfo;
-
-    public class TokenModel extends Model {
-
+    @Data
+    public static class User {
+        private String userId;
     }
 
-    @Override
-    public Token loadPrivateKey(String pri) {
-        return (Token) super.loadPrivateKey(pri);
+    @Data
+    public static class BusinessDescInfo {
+        private String scene;
+        private String uid;
     }
 
-    @Override
-    public Token loadPublicKey(String pub) {
-        return (Token) super.loadPublicKey(pub);
+    @Data
+    public static class BiometricInfo {
+        private String cpuId;
+        private String fid;
     }
 
-    @Override
-    public TokenModel build() {
-        /**
-         * 验证参数
-         */
+    @Data
+    public static class TokenModel {
+        private String jsonValue;
+        private String signature;
 
-        /**
-         * 生成tokenModel对象
-         */
-        LinkedHashMap<String, Object> map = new LinkedHashMap<>();
-        map.put("userInfo", this.userInfo);
-        map.put("businessDescInfo", this.getBusinessDescInfo());
-        map.put("biometricInfo", this.biometricInfo);
-        if (this.tokenModel == null) {
-            this.tokenModel = new TokenModel();
+        public TokenModel(String jsonValue, String signature) {
+            this.jsonValue = jsonValue;
+            this.signature = signature;
         }
-        this.tokenModel.setJsonValue(JsonUtils.toJson(map, map.getClass()));
-        this.tokenModel.setSignature(EncryptUtils
-                .base64Encode(EncryptUtils.sign(this.tokenModel.getJsonValue().getBytes(Charset.forName("UTF-8")), this.getPrivateKey())));
-        return this.tokenModel;
     }
 
-    @Override
-    public Token registerValidator(Validator validator) {
-        return (Token) super.registerValidator(validator);
+    @Data
+    public static class RequestParams {
+        private String jsonValue;
+        private String signature;
     }
 
-    @Override
-    public boolean verify() {
-        /**
-         * 验证参数
-         */
+    @Data
+    public static class Params{
+        private BusinessDescInfo businessDescInfo;
+        private BiometricInfo biometricInfo;
+        private TokenModel tokenModel;
+    }
 
-        /**
-         * 验证tokenModel对象
-         */
-        if (this.tokenModel == null) {
-            return EncryptUtils.verify(this.getPublicKey(), this.getJsonValue(), this.getSignature());
-        } else {
-            return EncryptUtils.verify(this.getPublicKey(), this.tokenModel.getJsonValue(), this.tokenModel.getSignature()) && this.validator
-                    .verify();
+    @Data
+    private static class SignParams{
+        private User user;
+        private BusinessDescInfo businessDescInfo;
+        private BiometricInfo biometricInfo;
+
+
+        public SignParams(User user, BusinessDescInfo businessDescInfo, BiometricInfo biometricInfo) {
+            this.user = user;
+            this.businessDescInfo = businessDescInfo;
+            this.biometricInfo = biometricInfo;
         }
-
     }
 
-    @Override
-    public Token loadJsonValue(String jsonValue) {
-        return (Token) super.loadJsonValue(jsonValue);
+    public static TokenModel sign(String privateKey, User user, BusinessDescInfo businessDescInfo, BiometricInfo biometricInfo) {
+        SignParams signParams=new SignParams(user,businessDescInfo,biometricInfo);
+        String jsonValue = JsonUtils.toJson(signParams, signParams.getClass());
+        String signature = EncryptUtils.base64Encode(EncryptUtils.sign(jsonValue, privateKey));
+        return new TokenModel(jsonValue, signature);
     }
 
-    @Override
-    public Token loadSignature(String signature) {
-        return (Token) super.loadSignature(signature);
+    public static boolean verify(String authPub, String publicKey, RequestParams requestParams) {
+
+        boolean f1 = EncryptUtils.verify(authPub, requestParams.getJsonValue(), requestParams.getSignature());
+        Params params = JsonUtils.fromJson(requestParams.getJsonValue(), Params.class);
+        TokenModel tokenModel = params.getTokenModel();
+
+        boolean f2 = EncryptUtils.verify(publicKey, tokenModel.getJsonValue(), tokenModel.getSignature());
+        SignParams signParams = JsonUtils.fromJson(tokenModel.getJsonValue(), SignParams.class);
+
+        boolean f3 = params.getBiometricInfo().getCpuId().equals(signParams.getBiometricInfo().getCpuId())
+                && params.getBiometricInfo().getFid().equals(signParams.getBiometricInfo().getFid())
+                && params.getBusinessDescInfo().getScene().equals(signParams.getBusinessDescInfo().getScene())
+                && params.getBusinessDescInfo().getUid().equals(signParams.getBusinessDescInfo().getUid());
+        return f1 && f2 && f3;
     }
-
-    public Token loadUserInfo(U user) {
-
-        this.userInfo = user;
-        return this;
-    }
-
-    public Token loadBusinessDescInfo(S businessDescInfo) {
-
-        this.setBusinessDescInfo(businessDescInfo);
-        return this;
-    }
-
-    public Token loadBiometricInfo(K biometricInfo) {
-
-        this.biometricInfo = biometricInfo;
-        return this;
-    }
-
-    public Token loadTokenModel(TokenModel tokenModel) {
-        this.tokenModel = tokenModel;
-        return this;
-    }
-
 }
